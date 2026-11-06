@@ -17,7 +17,8 @@ from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
     QGroupBox, QLabel, QPushButton, QSpinBox, QDoubleSpinBox,
     QCheckBox, QLineEdit, QTabWidget, QFrame, QStatusBar,
-    QFileDialog, QMessageBox, QComboBox
+    QFileDialog, QMessageBox, QComboBox, QTableWidget, QTableWidgetItem,
+    QDialog, QFormLayout, QDialogButtonBox, QHeaderView
 )
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QObject
 from PyQt5.QtGui import QFont
@@ -62,7 +63,7 @@ class ClickerEngine(QObject):
     fish_caught = pyqtSignal()
     status_changed = pyqtSignal(str)
     hotkey_pressed = pyqtSignal(str)
-    countdown_update = pyqtSignal(int)
+    countdown_update = pyqtSignal(float)
     
     def __init__(self, config):
         super().__init__()
@@ -318,7 +319,7 @@ class ClickerEngine(QObject):
                 self.status_changed.emit(f"⏳ Ожидание {wait_after_cast} сек (отслеживание вкл)...")
                 
                 bite_during_wait = False
-                wait_ticks = wait_after_cast * 20  # 20 проверок в секунду
+                wait_ticks = int(round(float(wait_after_cast) * 20))  # 20 проверок в секунду
                 
                 with mss.mss() as sct:
                     for tick in range(wait_ticks):
@@ -327,7 +328,7 @@ class ClickerEngine(QObject):
                         
                         # Обновляем таймер каждую секунду
                         if tick % 20 == 0:
-                            self.countdown_update.emit(wait_after_cast - tick // 20)
+                            self.countdown_update.emit(max(0.0, round(float(wait_after_cast) - tick / 20, 1)))
                         
                         # Проверяем поклёвку во время ожидания
                         if self.bite_template is not None:
@@ -598,6 +599,34 @@ class HotkeyButton(QPushButton):
         super().focusOutEvent(event)
 
 
+class BankPresetDialog(QDialog):
+    def __init__(self, parent=None, bank="", bait="", duration=20.5):
+        super().__init__(parent)
+        self.setWindowTitle("Пресет банки")
+        self.setMinimumWidth(380)
+        layout = QVBoxLayout(self)
+        form = QFormLayout()
+        self.bank_edit = QLineEdit(str(bank))
+        self.bait_edit = QLineEdit(str(bait))
+        self.time_spin = QDoubleSpinBox()
+        self.time_spin.setRange(0.5, 600.0)
+        self.time_spin.setDecimals(1)
+        self.time_spin.setSingleStep(0.5)
+        self.time_spin.setValue(float(duration))
+        self.time_spin.setSuffix(" с")
+        form.addRow("Номер банки/ямы:", self.bank_edit)
+        form.addRow("Приманка:", self.bait_edit)
+        form.addRow("Время:", self.time_spin)
+        layout.addLayout(form)
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def get_data(self):
+        return {"bank": self.bank_edit.text().strip(), "bait": self.bait_edit.text().strip(), "time": self.time_spin.value()}
+
+
 # === ГЛАВНОЕ ОКНО ===
 class MainWindow(QMainWindow):
     def __init__(self, config):
@@ -608,6 +637,9 @@ class MainWindow(QMainWindow):
         self.indicators = {}
         self.action_buttons = {}
         self.monitor_presets = {}
+        self.config.setdefault('bank_presets', [{'bank': '50', 'bait': 'Гигантский виброхвост 600гр', 'time': 20.5}])
+        self.config.setdefault('selected_bank_index', 0)
+        self.bank_presets = self.config.get('bank_presets', [])
         
         self.init_ui()
         self.init_engine()
@@ -638,6 +670,7 @@ class MainWindow(QMainWindow):
         tabs.addTab(self.create_main_tab(), "Главная")
         tabs.addTab(self.create_settings_tab(), "Настройки")
         tabs.addTab(self.create_detection_tab(), "Распознавание")
+        tabs.addTab(self.create_banks_tab(), "Банки")
         layout.addWidget(tabs)
         
         self.statusBar = QStatusBar()
@@ -682,9 +715,11 @@ class MainWindow(QMainWindow):
         
         row1 = QHBoxLayout()
         row1.addWidget(QLabel("Ожидание:"))
-        self.spin_wait = QSpinBox()
-        self.spin_wait.setRange(1, 120)
-        self.spin_wait.setValue(32)
+        self.spin_wait = QDoubleSpinBox()
+        self.spin_wait.setRange(0.5, 600.0)
+        self.spin_wait.setDecimals(1)
+        self.spin_wait.setSingleStep(0.5)
+        self.spin_wait.setValue(32.0)
         self.spin_wait.setSuffix(" сек")
         row1.addWidget(self.spin_wait)
         row1.addWidget(QLabel("Пилкинг:"))
@@ -722,6 +757,147 @@ class MainWindow(QMainWindow):
         layout.addStretch()
         return tab
     
+    def create_banks_tab(self):
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        info = QLabel("Сохраняй свои банки, приманки и время ожидания. Выбранный пресет автоматически задаёт время для автоматической ловли.")
+        info.setWordWrap(True)
+        layout.addWidget(info)
+        self.bank_table = QTableWidget(0, 3)
+        self.bank_table.setHorizontalHeaderLabels(["Номер банки/ямы", "Приманка", "Время"])
+        self.bank_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        self.bank_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        self.bank_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        self.bank_table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.bank_table.setSelectionMode(QTableWidget.SingleSelection)
+        self.bank_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.bank_table.doubleClicked.connect(self.edit_bank)
+        layout.addWidget(self.bank_table)
+        buttons = QHBoxLayout()
+        self.btn_bank_add = QPushButton("＋ Добавить")
+        self.btn_bank_edit = QPushButton("✎ Изменить")
+        self.btn_bank_delete = QPushButton("✕ Удалить")
+        self.btn_bank_add.clicked.connect(self.add_bank)
+        self.btn_bank_edit.clicked.connect(self.edit_bank)
+        self.btn_bank_delete.clicked.connect(self.delete_bank)
+        buttons.addWidget(self.btn_bank_add)
+        buttons.addWidget(self.btn_bank_edit)
+        buttons.addWidget(self.btn_bank_delete)
+        layout.addLayout(buttons)
+        active_row = QHBoxLayout()
+        active_row.addWidget(QLabel("Активная банка:"))
+        self.bank_combo = QComboBox()
+        self.bank_combo.currentIndexChanged.connect(self.on_bank_selected)
+        active_row.addWidget(self.bank_combo, 1)
+        layout.addLayout(active_row)
+        self.refresh_bank_table()
+        self.refresh_bank_combo()
+        layout.addStretch()
+        return tab
+
+    def refresh_bank_table(self):
+        if not hasattr(self, "bank_table"):
+            return
+        self.bank_table.setRowCount(0)
+        for preset in self.bank_presets:
+            row = self.bank_table.rowCount()
+            self.bank_table.insertRow(row)
+            values = [str(preset.get("bank", "")), str(preset.get("bait", "")), f'{float(preset.get("time", 0.5)):g} с']
+            for column, value in enumerate(values):
+                self.bank_table.setItem(row, column, QTableWidgetItem(value))
+
+    def refresh_bank_combo(self):
+        if not hasattr(self, "bank_combo"):
+            return
+        self.bank_combo.blockSignals(True)
+        self.bank_combo.clear()
+        for preset in self.bank_presets:
+            label = f'{preset.get("bank", "")} — {preset.get("bait", "")} ({float(preset.get("time", 0.5)):g} с)'
+            self.bank_combo.addItem(label)
+        selected = int(self.config.get("selected_bank_index", 0))
+        if self.bank_presets:
+            selected = max(0, min(selected, len(self.bank_presets) - 1))
+            self.bank_combo.setCurrentIndex(selected)
+        else:
+            selected = -1
+            self.config["selected_bank_index"] = 0
+        self.bank_combo.blockSignals(False)
+        if selected >= 0:
+            self.apply_bank_preset(selected)
+
+    def apply_bank_preset(self, index):
+        if 0 <= index < len(self.bank_presets):
+            self.spin_wait.setValue(float(self.bank_presets[index].get("time", 20.5)))
+            self.config["selected_bank_index"] = index
+
+    def on_bank_selected(self, index):
+        if index < 0 or index >= len(self.bank_presets):
+            return
+        self.apply_bank_preset(index)
+        self.save_bank_presets()
+
+    def save_bank_presets(self):
+        self.config["bank_presets"] = self.bank_presets
+        if self.bank_presets:
+            self.config["selected_bank_index"] = max(0, min(int(self.config.get("selected_bank_index", 0)), len(self.bank_presets) - 1))
+        else:
+            self.config["selected_bank_index"] = 0
+        path = os.path.join(CURRENT_DIR, "config.json")
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(self.config, f, indent=4, ensure_ascii=False)
+        if self.engine:
+            self.engine.update_config(self.config)
+
+    def add_bank(self):
+        dialog = BankPresetDialog(self)
+        if dialog.exec_() != QDialog.Accepted:
+            return
+        data = dialog.get_data()
+        if not data["bank"] or not data["bait"]:
+            QMessageBox.warning(self, "Не заполнено", "Укажи номер банки/ямы и название приманки.")
+            return
+        self.bank_presets.append(data)
+        self.config["selected_bank_index"] = len(self.bank_presets) - 1
+        self.refresh_bank_table()
+        self.refresh_bank_combo()
+        self.bank_table.selectRow(len(self.bank_presets) - 1)
+        self.save_bank_presets()
+
+    def edit_bank(self):
+        row = self.bank_table.currentRow()
+        if row < 0 or row >= len(self.bank_presets):
+            return
+        preset = self.bank_presets[row]
+        dialog = BankPresetDialog(self, preset.get("bank", ""), preset.get("bait", ""), preset.get("time", 20.5))
+        if dialog.exec_() != QDialog.Accepted:
+            return
+        data = dialog.get_data()
+        if not data["bank"] or not data["bait"]:
+            QMessageBox.warning(self, "Не заполнено", "Укажи номер банки/ямы и название приманки.")
+            return
+        self.bank_presets[row] = data
+        self.config["selected_bank_index"] = row
+        self.refresh_bank_table()
+        self.refresh_bank_combo()
+        self.bank_table.selectRow(row)
+        self.save_bank_presets()
+
+    def delete_bank(self):
+        row = self.bank_table.currentRow()
+        if row < 0 or row >= len(self.bank_presets):
+            return
+        answer = QMessageBox.question(self, "Удаление пресета", f'Удалить пресет банки «{self.bank_presets[row].get("bank", "")}»?', QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        if answer != QMessageBox.Yes:
+            return
+        self.bank_presets.pop(row)
+        if self.bank_presets:
+            self.config["selected_bank_index"] = min(row, len(self.bank_presets) - 1)
+        else:
+            self.config["selected_bank_index"] = 0
+        self.refresh_bank_table()
+        self.refresh_bank_combo()
+        self.save_bank_presets()
+
     def create_settings_tab(self):
         tab = QWidget()
         layout = QVBoxLayout(tab)
@@ -1035,6 +1211,7 @@ class MainWindow(QMainWindow):
         monitor_preset.setdefault('screen_resolution', self.config.get('screen_resolution', {'width': 2560, 'height': 1440}))
         monitor_preset['bite_icon'] = {'region': {'x': self.spin_x.value(), 'y': self.spin_y.value(), 'width': self.spin_w.value(), 'height': self.spin_h.value()}}
         monitor_preset['tension_bar'] = {'check_x': self.spin_tx.value(), 'check_y': self.spin_ty.value()}
+        self.config['bank_presets'] = self.bank_presets
         self.config['auto_fishing'] = {
             'wait_after_cast': self.spin_wait.value(), 'cast_delay': self.spin_cast.value(),
             'after_catch_delay': self.spin_after.value(), 'pilking_type': 'light' if self.combo_pilking.currentIndex() == 0 else 'heavy'
@@ -1083,6 +1260,9 @@ class MainWindow(QMainWindow):
         
         f = self.config.get('auto_fishing', {})
         self.spin_wait.setValue(f.get('wait_after_cast', 32))
+        self.bank_presets = self.config.get('bank_presets', [{'bank': '50', 'bait': 'Гигантский виброхвост 600гр', 'time': 20.5}])
+        self.refresh_bank_table()
+        self.refresh_bank_combo()
         self.spin_cast.setValue(f.get('cast_delay', 1.0))
         self.spin_after.setValue(f.get('after_catch_delay', 0.5))
         self.combo_pilking.setCurrentIndex(0 if f.get('pilking_type', 'light') == 'light' else 1)
