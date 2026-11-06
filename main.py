@@ -1078,6 +1078,7 @@ class MainWindow(QMainWindow):
         self.engine.status_changed.connect(self.statusBar.showMessage)
         self.engine.countdown_update.connect(lambda s: self.lbl_countdown.setText(str(s)))
         self.engine.hotkey_pressed.connect(self.on_hotkey)
+        self.statusBar.showMessage(self.engine.hotkey_status, 10000)
 
         self.live_score_timer = QTimer()
         self.live_score_timer.timeout.connect(self.update_live_score)
