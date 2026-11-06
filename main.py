@@ -600,7 +600,7 @@ class HotkeyButton(QPushButton):
 
 
 class BankPresetDialog(QDialog):
-    def __init__(self, parent=None, bank="", bait="", duration=20.5):
+    def __init__(self, parent=None, bank="", bait="", duration=20.5, pilking_type="light"):
         super().__init__(parent)
         self.setWindowTitle("Пресет банки")
         self.setMinimumWidth(380)
@@ -614,9 +614,15 @@ class BankPresetDialog(QDialog):
         self.time_spin.setSingleStep(0.5)
         self.time_spin.setValue(float(duration))
         self.time_spin.setSuffix(" с")
+        self.pilking_combo = QComboBox()
+        self.pilking_combo.addItem("Лёгкий", "light")
+        self.pilking_combo.addItem("Сильный", "heavy")
+        pilking_index = self.pilking_combo.findData(pilking_type)
+        self.pilking_combo.setCurrentIndex(max(0, pilking_index))
         form.addRow("Номер банки/ямы:", self.bank_edit)
         form.addRow("Приманка:", self.bait_edit)
         form.addRow("Время:", self.time_spin)
+        form.addRow("Пилкинг:", self.pilking_combo)
         layout.addLayout(form)
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         buttons.accepted.connect(self.accept)
@@ -624,7 +630,12 @@ class BankPresetDialog(QDialog):
         layout.addWidget(buttons)
 
     def get_data(self):
-        return {"bank": self.bank_edit.text().strip(), "bait": self.bait_edit.text().strip(), "time": self.time_spin.value()}
+        return {
+            "bank": self.bank_edit.text().strip(),
+            "bait": self.bait_edit.text().strip(),
+            "time": self.time_spin.value(),
+            "pilking_type": self.pilking_combo.currentData()
+        }
 
 
 # === ГЛАВНОЕ ОКНО ===
@@ -640,6 +651,8 @@ class MainWindow(QMainWindow):
         self.config.setdefault('bank_presets', [{'bank': '50', 'bait': 'Гигантский виброхвост 600гр', 'time': 20.5}])
         self.config.setdefault('selected_bank_index', 0)
         self.bank_presets = self.config.get('bank_presets', [])
+        for bank_preset in self.bank_presets:
+            bank_preset.setdefault("pilking_type", "light")
         
         self.init_ui()
         self.init_engine()
@@ -812,7 +825,8 @@ class MainWindow(QMainWindow):
         self.bank_combo.blockSignals(True)
         self.bank_combo.clear()
         for preset in self.bank_presets:
-            label = f'{preset.get("bank", "")} — {preset.get("bait", "")} ({float(preset.get("time", 0.5)):g} с)'
+            pilking_label = "Сильный" if preset.get("pilking_type", "light") == "heavy" else "Лёгкий"
+            label = f'{preset.get("bank", "")} — {preset.get("bait", "")} ({float(preset.get("time", 0.5)):g} с, {pilking_label})'
             self.bank_combo.addItem(label)
         selected = int(self.config.get("selected_bank_index", 0))
         if self.bank_presets:
@@ -827,7 +841,10 @@ class MainWindow(QMainWindow):
 
     def apply_bank_preset(self, index):
         if 0 <= index < len(self.bank_presets):
-            self.spin_wait.setValue(float(self.bank_presets[index].get("time", 20.5)))
+            preset = self.bank_presets[index]
+            self.spin_wait.setValue(float(preset.get("time", 20.5)))
+            pilking_type = preset.get("pilking_type", "light")
+            self.combo_pilking.setCurrentIndex(0 if pilking_type == "light" else 1)
             self.config["selected_bank_index"] = index
 
     def on_bank_selected(self, index):
@@ -868,7 +885,13 @@ class MainWindow(QMainWindow):
         if row < 0 or row >= len(self.bank_presets):
             return
         preset = self.bank_presets[row]
-        dialog = BankPresetDialog(self, preset.get("bank", ""), preset.get("bait", ""), preset.get("time", 20.5))
+        dialog = BankPresetDialog(
+            self,
+            preset.get("bank", ""),
+            preset.get("bait", ""),
+            preset.get("time", 20.5),
+            preset.get("pilking_type", "light")
+        )
         if dialog.exec_() != QDialog.Accepted:
             return
         data = dialog.get_data()
