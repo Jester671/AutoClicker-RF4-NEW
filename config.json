@@ -1,0 +1,87 @@
+{
+    "screen_resolution": {
+        "width": 2560,
+        "height": 1440
+    },
+    "bite_icon": {
+        "enabled": true,
+        "path": "bite_icon.png",
+        "threshold": 0.8,
+        "region": {
+            "x": 804,
+            "y": 1318,
+            "width": 133,
+            "height": 133
+        }
+    },
+    "tension_bar": {
+        "enabled": true,
+        "check_x": 900,
+        "check_y": 1412,
+        "color_r_min": 180
+    },
+    "hotkeys": {
+        "light_pilking": "r",
+        "heavy_pilking": "u",
+        "reel_in": "0",
+        "turn_left": "7",
+        "turn_right": "8"
+    },
+    "presets": {
+        "light_pilking": {
+            "hold_time": 0.3,
+            "wait_time": 2.1
+        },
+        "heavy_pilking": {
+            "hold_time": 0.5,
+            "wait_time": 2.3
+        }
+    },
+    "auto_fishing": {
+        "wait_after_cast": 130,
+        "cast_delay": 1.0,
+        "after_catch_delay": 0.5,
+        "pilking_type": "light"
+    },
+    "selected_monitor": "monitor_1",
+    "monitor_presets": {
+        "monitor_1": {
+            "name": "Монитор 1 (2560x1440)",
+            "screen_resolution": {
+                "width": 2560,
+                "height": 1440
+            },
+            "bite_icon": {
+                "region": {
+                    "x": 804,
+                    "y": 1318,
+                    "width": 133,
+                    "height": 133
+                }
+            },
+            "tension_bar": {
+                "check_x": 900,
+                "check_y": 1412
+            }
+        },
+        "monitor_2": {
+            "name": "Монитор 2",
+            "screen_resolution": {
+                "width": 1920,
+                "height": 1080
+            },
+            "bite_icon": {
+                "region": {
+                    "x": 550,
+                    "y": 1024,
+                    "width": 133,
+                    "height": 133
+                }
+            },
+            "tension_bar": {
+                "check_x": 582,
+                "check_y": 1051
+            }
+        }
+    }
+}
