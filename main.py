@@ -70,6 +70,8 @@ class ClickerEngine(QObject):
         self.config = config
         self.mouse = MouseController()
         self.keyboard_ctrl = KeyboardController()
+        self.hotkey_hooks = []
+        self.hotkey_status = "Горячие клавиши не настроены"
         
         self.action_states = {
             'light_pilking': False,
@@ -192,18 +194,39 @@ class ClickerEngine(QObject):
         return confirmations >= max(1, confirm_frames)
         
     def setup_hotkeys(self):
-        try:
-            keyboard.unhook_all()
-        except:
-            pass
+        for hook in self.hotkey_hooks:
+            try:
+                keyboard.unhook(hook)
+            except Exception:
+                pass
+        self.hotkey_hooks.clear()
+
         hotkeys = self.config.get('hotkeys', {})
+        registered = []
+        errors = []
+
         for action, key in hotkeys.items():
-            if key:
-                try:
-                    keyboard.on_press_key(key, lambda e, a=action: self.on_hotkey(a), suppress=False)
-                except:
-                    pass
-                    
+            if not key:
+                continue
+            try:
+                hook = keyboard.on_press_key(
+                    str(key).strip().lower(),
+                    lambda event, current_action=action: self.on_hotkey(current_action),
+                    suppress=False
+                )
+                self.hotkey_hooks.append(hook)
+                registered.append(f"{action}: {key}")
+            except Exception as error:
+                errors.append(f"{key}: {error}")
+
+        self.hotkey_status = (
+            f"Горячие клавиши зарегистрированы: {len(registered)}"
+            if not errors else
+            f"Зарегистрировано: {len(registered)}; ошибки: {'; '.join(errors)}"
+        )
+        if not registered and not errors:
+            self.hotkey_status = "В config.json не заданы горячие клавиши"
+
     def on_hotkey(self, action):
         self.hotkey_pressed.emit(action)
         
@@ -541,10 +564,12 @@ class ClickerEngine(QObject):
             self.keyboard_ctrl.release('d')
         except:
             pass
-        try:
-            keyboard.unhook_all()
-        except:
-            pass
+        for hook in self.hotkey_hooks:
+            try:
+                keyboard.unhook(hook)
+            except Exception:
+                pass
+        self.hotkey_hooks.clear()
 
 
 # === ВИДЖЕТЫ ===
